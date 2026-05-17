@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>OPTIX — Retail Intelligence</title>
+<script src="https://cdn.jsdelivr.net/npm/tus-js-client@3.1.0/dist/tus.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;background:#0f1117;color:#e2e8f0;min-height:100vh}
+header{background:#1a1d2e;border-bottom:1px solid #2d3148;padding:1rem 2rem;display:flex;align-items:center;gap:.75rem}
+header h1{font-size:1.4rem;font-weight:700;color:#fff}
+header span{background:#3b82f6;color:#fff;font-size:.7rem;padding:2px 8px;border-radius:99px;font-weight:600}
+main{max-width:1100px;margin:0 auto;padding:2rem}
+.card{background:#1a1d2e;border:1px solid #2d3148;border-radius:12px;padding:1.5rem;margin-bottom:1.5rem}
+.card h2{font-size:.8rem;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-bottom:1rem}
+.dropzone{border:2px dashed #2d3148;border-radius:8px;padding:3rem 2rem;text-align:center;cursor:pointer;transition:border-color .2s}
+.dropzone:hover,.dropzone.drag{border-color:#3b82f6}
+.dropzone p{color:#64748b;margin-top:.4rem;font-size:.85rem}
+.btn{display:block;width:100%;background:#3b82f6;color:#fff;border:none;padding:.8rem;border-radius:8px;font-size:1rem;font-weight:600;cursor:pointer;margin-top:1rem;transition:background .2s}
+.btn:hover{background:#2563eb}
+.btn:disabled{background:#374151;cursor:not-allowed}
+.bar-wrap{background:#0f1117;border-radius:99px;height:10px;margin-top:1rem;overflow:hidden;display:none}
+.bar{height:100%;background:#3b82f6;border-radius:99px;width:0;transition:width .3s}
+.pct{text-align:center;font-size:.8rem;color:#94a3b8;margin-top:.3rem}
+.badge{display:inline-block;padding:3px 10px;border-radius:99px;font-size:.8rem;font-weight:600;margin-top:.75rem}
+.uploading{background:#1e3a8a33;color:#60a5fa;border:1px solid #1e40af}
+.processing{background:#78350f33;color:#fbbf24;border:1px solid #92400e}
+.done{background:#14532d33;color:#4ade80;border:1px solid #166534}
+.error{background:#7f1d1d33;color:#f87171;border:1px solid #991b1b}
+
+/* Heatmap */
+.heatmap-wrap{border-radius:10px;overflow:hidden;background:#000;position:relative}
+.heatmap-wrap img{width:100%;display:block}
+.toggle-row{display:flex;gap:.5rem;margin-bottom:.75rem}
+.toggle-btn{background:#1a1d2e;border:1px solid #2d3148;color:#94a3b8;padding:.4rem 1rem;border-radius:6px;cursor:pointer;font-size:.85rem;transition:all .2s}
+.toggle-btn.active{background:#3b82f6;border-color:#3b82f6;color:#fff}
+
+/* Color legend */
+.legend{display:flex;align-items:center;gap:.5rem;margin-top:.75rem}
+.legend-bar{flex:1;height:16px;border-radius:4px;background:linear-gradient(to right,#00008b,#0000ff,#00ffff,#00ff00,#ffff00,#ff8000,#ff0000)}
+.legend-labels{display:flex;justify-content:space-between;font-size:.7rem;color:#64748b;margin-top:3px}
+
+/* Stats row */
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin-top:1rem}
+.stat{background:#0f1117;border-radius:8px;padding:.75rem;text-align:center;border:1px solid #2d3148}
+.stat-val{font-size:1.4rem;font-weight:700;color:#fff}
+.stat-label{font-size:.75rem;color:#64748b;margin-top:.2rem}
+
+.hidden{display:none}
+</style>
+</head>
+<body>
+<header>
+  <h1>OPTIX</h1><span>Retail Intelligence</span>
+</header>
+<main>
+
+  <div class="card">
+    <h2>Upload CCTV Video</h2>
+    <div class="dropzone" id="dz" onclick="document.getElementById('fi').click()">
+      <div style="font-size:2.5rem">🎬</div>
+      <strong id="fname">Drop video here or click to select</strong>
+      <p>Any size · MP4, AVI, MOV · Resumes if connection drops</p>
+      <input type="file" id="fi" accept="video/*" style="display:none"/>
+    </div>
+    <button class="btn" id="btn" disabled onclick="go()">Select a video first</button>
+    <div class="bar-wrap" id="bw"><div class="bar" id="bar"></div></div>
+    <p class="pct" id="pct"></p>
+    <div id="status"></div>
+  </div>
+
+  <div class="card hidden" id="rc">
+    <h2>Motion Heatmap</h2>
+
+    <!-- Toggle between pure heatmap and overlay -->
+    <div class="toggle-row">
+      <button class="toggle-btn active" id="btn-heat" onclick="showHeat()">Heatmap only</button>
+      <button class="toggle-btn" id="btn-overlay" onclick="showOverlay()">Overlay on video</button>
+    </div>
+
+    <div class="heatmap-wrap">
+      <img id="himg" src="" alt="heatmap"/>
+    </div>
+
+    <!-- Color legend -->
+    <div class="legend">
+      <span style="font-size:.7rem;color:#64748b">Cold</span>
+      <div style="flex:1">
+        <div class="legend-bar"></div>
+        <div class="legend-labels">
+          <span>No movement</span>
+          <span>Some movement</span>
+          <span>🔴 Maximum activity</span>
+        </div>
+      </div>
+      <span style="font-size:.7rem;color:#f87171">Hot</span>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats" id="stats"></div>
+  </div>
+
+</main>
+
+<script>
+const API = "https://optix-new.onrender.com";
+
+let file = null, upload = null, poll = null;
+let heatUrl = "", overlayUrl = "";
+
+document.getElementById("fi").onchange = e => {
+  file = e.target.files[0];
+  if (!file) return;
+  document.getElementById("fname").textContent = file.name + " (" + fmt(file.size) + ")";
+  document.getElementById("btn").disabled = false;
+  document.getElementById("btn").textContent = "Upload & Analyse";
+};
+
+const dz = document.getElementById("dz");
+dz.ondragover = e => { e.preventDefault(); dz.classList.add("drag"); };
+dz.ondragleave = () => dz.classList.remove("drag");
+dz.ondrop = e => {
+  e.preventDefault(); dz.classList.remove("drag");
+  file = e.dataTransfer.files[0];
+  if (!file) return;
+  document.getElementById("fname").textContent = file.name + " (" + fmt(file.size) + ")";
+  document.getElementById("btn").disabled = false;
+  document.getElementById("btn").textContent = "Upload & Analyse";
+};
+
+function go() {
+  if (!file) return;
+  document.getElementById("btn").disabled = true;
+  document.getElementById("bw").style.display = "block";
+  document.getElementById("rc").classList.add("hidden");
+  badge("Connecting…", "uploading");
+
+  upload = new tus.Upload(file, {
+    endpoint: API + "/upload",
+    chunkSize: 5 * 1024 * 1024,
+    retryDelays: [0, 3000, 5000, 10000, 20000],
+    metadata: { filename: file.name, filetype: file.type },
+    onError(err) {
+      badge("Upload failed — " + err, "error");
+      document.getElementById("btn").disabled = false;
+    },
+    onProgress(sent, total) {
+      const p = Math.round(sent / total * 100);
+      document.getElementById("bar").style.width = p + "%";
+      document.getElementById("pct").textContent = p + "% · " + fmt(sent) + " / " + fmt(total);
+      badge("Uploading…", "uploading");
+    },
+    onSuccess() {
+      const uid = upload.url.split("/").pop();
+      badge("Upload complete — analysing video…", "processing");
+      startPoll(uid);
+    },
+  });
+
+  upload.findPreviousUploads().then(prev => {
+    if (prev.length) upload.resumeFromPreviousUpload(prev[0]);
+    upload.start();
+  });
+}
+
+function startPoll(uid) {
+  clearInterval(poll);
+  poll = setInterval(async () => {
+    try {
+      const r = await fetch(API + "/status/" + uid);
+      const d = await r.json();
+      if (d.status === "done") {
+        clearInterval(poll);
+        badge("Analysis complete ✓", "done");
+        showResults(uid);
+      } else if ((d.status || "").startsWith("error")) {
+        clearInterval(poll);
+        badge("Error: " + d.status, "error");
+      } else {
+        badge("Processing… (" + (d.status || "…") + ")", "processing");
+      }
+    } catch (_) {}
+  }, 3000);
+}
+
+async function showResults(uid) {
+  const r = await fetch(API + "/results/" + uid);
+  const d = await r.json();
+
+  document.getElementById("rc").classList.remove("hidden");
+
+  heatUrl    = API + d.heatmap_url + "?t=" + Date.now();
+  overlayUrl = API + d.overlay_url + "?t=" + Date.now();
+
+  document.getElementById("himg").src = heatUrl;
+
+  // Stats
+  const zones = d.zones || [];
+  const hottest = zones[0];
+  const statsEl = document.getElementById("stats");
+  statsEl.innerHTML = `
+    <div class="stat">
+      <div class="stat-val">${d.frames_sampled.toLocaleString()}</div>
+      <div class="stat-label">Frames analysed</div>
+    </div>
+    <div class="stat">
+      <div class="stat-val">${d.resolution}</div>
+      <div class="stat-label">Video resolution</div>
+    </div>
+    <div class="stat">
+      <div class="stat-val" style="color:#f87171">${hottest ? hottest.id : "—"}</div>
+      <div class="stat-label">Hottest zone</div>
+    </div>
+  `;
+}
+
+function showHeat() {
+  document.getElementById("himg").src = heatUrl;
+  document.getElementById("btn-heat").classList.add("active");
+  document.getElementById("btn-overlay").classList.remove("active");
+}
+
+function showOverlay() {
+  document.getElementById("himg").src = overlayUrl;
+  document.getElementById("btn-overlay").classList.add("active");
+  document.getElementById("btn-heat").classList.remove("active");
+}
+
+function badge(msg, cls) {
+  document.getElementById("status").innerHTML = `<span class="badge ${cls}">${msg}</span>`;
+}
+
+function fmt(b) {
+  if (b < 1024) return b + " B";
+  if (b < 1048576) return (b/1024).toFixed(1) + " KB";
+  if (b < 1073741824) return (b/1048576).toFixed(1) + " MB";
+  return (b/1073741824).toFixed(2) + " GB";
+}
+</script>
+</body>
+</html>
